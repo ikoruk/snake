@@ -1,177 +1,370 @@
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
 
-import Foundation
 import ANSITerminal
-
-var width = 80
-var height = 20
+import Foundation
 
 struct Game {
-    var data: [[String]] = []
+  var data: [[String]] = []
 
-    var snakes: [Snake] = []
+  var snakes: [Snake] = []
 
-    init(snakes: [Snake]) {
-        self.snakes = snakes
+  var food = Food()
 
-        var tempArray: [String] = []
-        tempArray.append("+")
-        for _ in 0..<width-2 {
-            tempArray.append("⎯")
-        }
-        tempArray.append("+")
-        data.append(tempArray)
+  var shouldClose = false
 
-        tempArray = []
-        for _ in 0..<height-2 {
-            tempArray.append("|")
-            for _ in 0..<width-2 {
-                tempArray.append(" ")
+  init(snakes: [Snake]) {
+    self.snakes = snakes
+
+    var tempArray: [String] = []
+    tempArray.append("\u{250c}")
+    for _ in 0..<width - 2 {
+      tempArray.append("\u{2500}")
+    }
+    tempArray.append("\u{2510}")
+    data.append(tempArray)
+
+    tempArray = []
+    for _ in 0..<height - 2 {
+      tempArray.append("\u{2502}")
+      for _ in 0..<width - 2 {
+        tempArray.append(" ")
+      }
+      tempArray.append("\u{2502}")
+      data.append(tempArray)
+      tempArray = []
+    }
+
+    tempArray.append("\u{2514}")
+    for _ in 0..<width - 2 {
+      tempArray.append("\u{2500}")
+    }
+    tempArray.append("\u{2518}")
+    data.append(tempArray)
+    tempArray = []
+  }
+
+  mutating func clearGrid() {
+    for i in 1..<height - 1 {
+      for j in 1..<width - 1 {
+        self.data[i][j] = " "
+      }
+    }
+  }
+
+  mutating func updateSnakes(_ pressedDirection: Direction?) {
+    for (i, snake) in snakes.enumerated() {
+      if snake.isAI {
+        var bestDirection: Direction = .right
+        var bestDist: Double = Double.infinity
+
+        // choose direction to move to food fastest, try to avoid other snakes
+        for direction in Direction.allCases {
+          if snake.direction == .left && direction == .right { continue }
+          if snake.direction == .right && direction == .left { continue }
+          if snake.direction == .up && direction == .down { continue }
+          if snake.direction == .down && direction == .up { continue }
+
+          let newPos = snake.newPosition(direction)
+
+          // if the new position is occupied, skip
+          var occupied = false
+          for (j, otherSnake) in snakes.enumerated() {
+            if otherSnake.realPositions(i == j).contains(where: { $0 == newPos }) {
+              occupied = true
+              break
             }
-            tempArray.append("|")
-            data.append(tempArray)
-            tempArray = []
+          }
+
+          if occupied { continue }
+
+          let dist = sqrt(
+            Double(food.position.0 - newPos.0) * Double(food.position.0 - newPos.0)
+              + Double(food.position.1 - newPos.1) * Double(food.position.1 - newPos.1))
+
+          if dist < bestDist {
+            bestDist = dist
+            bestDirection = direction
+          }
         }
 
-        tempArray.append("+")
-        for _ in 0..<width-2 {
-            tempArray.append("—")
+        snake.move(bestDirection)
+      } else {
+        snake.move(pressedDirection)
+      }
+    }
+  }
+
+  mutating func draw() {
+    // update dead snake last
+    let snakesArray = snakes.sorted(by: { !$0.isDead && $1.isDead })
+    for snake in snakesArray {
+      for (i, pos) in snake.positions.enumerated() {
+        if i == snake.positions.count - 1 {
+          if snake.isDead {
+            self.data[pos.0][pos.1] = "X".foreColor(snake.color).bold
+          } else {
+            self.data[pos.0][pos.1] = "Ö".foreColor(snake.color).bold
+          }
+        } else if i == 0 {
+          self.data[pos.0][pos.1] = "o".foreColor(snake.color)
+        } else {
+          self.data[pos.0][pos.1] = "0".foreColor(snake.color)
         }
-        tempArray.append("+")
-        data.append(tempArray)
-        tempArray = []
+      }
     }
+    self.data[food.position.0][food.position.1] = "\u{00A9}".red.bold
+  }
 
-    mutating func clearGrid() {
-        for i in 1..<height-1 {
-            for j in 1..<width-1 {
-                self.data[i][j] = " "
-            }
+  mutating func updateFood(_ data: [[String]]) {
+    for snake in snakes {
+      if snake.currentPosition == food.position {
+        snake.increaseLength()
+        snake.increaseScore(food.score)
+      }
+      while snake.positions.contains(where: { $0 == food.position }) {
+        food = Food()
+      }
+    }
+  }
+
+  mutating func updateIsDead() {
+    for (i, snake) in snakes.enumerated() {
+      // check if snake is dead
+      for (j, otherSnake) in snakes.enumerated() {
+        if otherSnake.realPositions(i == j).contains(where: { $0 == snake.currentPosition }) {
+          snake.isDead = true
         }
+      }
+    }
+  }
+
+  mutating func update() {
+    let direction = getKeyPressedDirection()
+    if direction == .esc {
+      shouldClose = true
+      return
     }
 
-    mutating func updateSnakes(pressedDirection: Direction?) {
-        for snake in snakes {
-            snake.move(direction: pressedDirection)
-            for (i, pos) in snake.positions.enumerated() {
-                if i == snake.positions.count - 1 {
-                    self.data[pos.0][pos.1] = "0".blue.bold
-                } else {
-                    self.data[pos.0][pos.1] = "0"
-                }
-            }
-        }
+    updateSnakes(direction)
+    updateFood(data)
+    updateIsDead()
+
+    clearGrid()
+    draw()
+  }
+
+  func render() {
+    var fullString = data.reduce("") { $0 + ($1.reduce("") { $0 + $1 }) + "\n" }
+
+    for (i, snake) in snakes.enumerated() {
+      fullString += "\nSnake \(i+1) Score: \(snake.score)"
     }
 
-    mutating func update() {
-        clearGrid()
-        let direction = getKeyPressedDirection()
-        updateSnakes(pressedDirection: direction)
+    print(fullString)
+  }
+
+  func checkLose() -> Bool {
+    var someoneDied = false
+
+    if shouldClose {
+      print("Exiting...")
+      return true
     }
 
-    func render() {
-        clearScreen()
-
-        let fullString = data.reduce("") { $0 + ($1.reduce("") { $0 + $1 }) + "\n" }
-        print(fullString)
+    if snakes.count == 1 && snakes.first!.isDead {
+      print("You lost")
+      return true
     }
 
-    func checkLose() {
-        for snake in snakes {
-            if snake.isDead() {
-                print("You lose")
-                exit(0)
-            }
-        }
+    if snakes.count == 2 && snakes[0].isDead {
+      print("Snake 2 won")
+      return true
+    } else if snakes.count == 2 && snakes[1].isDead {
+      print("Snake 1 won")
+      return true
     }
-}
 
-enum Direction {
-    case left
-    case right
-    case down
-    case up
+    for (i, snake) in snakes.enumerated() {
+      if snake.isDead {
+        print("Snake \(i+1) lost")
+        someoneDied = true
+      }
+    }
+
+    if someoneDied {
+      return true
+    }
+
+    return false
+  }
 }
 
 class Snake {
-    var direction: Direction = .right
-    var positions: [(Int, Int)] = [];
-    var length = 20
+  var direction: Direction = .right
+  var positions: [(Int, Int)] = []
+  var length = 5
+  var color: UInt8 = 14
 
-    init() {
-        for _ in 0..<length {
-            positions.append((1, 1))
-        }
+  var score = 0
+  var isDead = false
+  var isAI = false
+  var difficulty = 8
+
+  init(
+    _ initialPos: (Int, Int) = (1, 1), direction: Direction = .right, isAI: Bool = false,
+    color: UInt8 = 14, difficulty: Int = 8
+  ) {
+    self.direction = direction
+    self.isAI = isAI
+    self.color = color
+    self.difficulty = difficulty
+
+    for _ in 0..<length {
+      positions.append(initialPos)
+    }
+  }
+
+  func increaseLength(_ increase: Int = 4) {
+    for _ in 0..<increase {
+      positions.insert(positions.first!, at: 0)
+    }
+  }
+
+  func increaseScore(_ increase: Int) {
+    score += increase
+  }
+
+  var currentPosition: (Int, Int) {
+    return positions.last!
+  }
+
+  func realPositions(_ isSelf: Bool) -> ArraySlice<(Int, Int)> {
+    let lastIndex = positions.count - (isSelf ? 2 : 1)
+
+    // the first position which is different from the one after it in the array
+    for (i, pos) in positions[0...lastIndex].enumerated() {
+      if pos != positions[i + 1] {
+        return positions[i...lastIndex]
+      }
+    }
+    return positions[lastIndex...lastIndex]
+  }
+
+  func newPosition(_ direction: Direction) -> (Int, Int) {
+    var newPos = positions.last!
+
+    switch direction {
+    case .left: newPos = (newPos.0, newPos.1 - 1)
+    case .right: newPos = (newPos.0, newPos.1 + 1)
+    case .up: newPos = (newPos.0 - 1, newPos.1)
+    case .down: newPos = (newPos.0 + 1, newPos.1)
+    default: break
     }
 
-    func move(direction: Direction?) {
-        if (self.direction == .left && direction != .right) ||
-            (self.direction == .right && direction != .left) ||
-            (self.direction == .up && direction != .down) ||
-            (self.direction == .down && direction != .up)
-        {
-            self.direction = direction ?? self.direction
-        }
-
-        var newPos: (Int, Int) = positions.last! 
-        switch self.direction {
-            case .left  : newPos = (newPos.0, newPos.1 - 1)
-            case .right : newPos = (newPos.0, newPos.1 + 1)
-            case .up    : newPos = (newPos.0 - 1, newPos.1)
-            case .down  : newPos = (newPos.0 + 1, newPos.1)
-        }
-
-        if newPos.0 < 1 {
-            newPos.0 = height - 2
-        }
-        if newPos.1 < 1 {
-            newPos.1 = width - 2
-        }
-        if newPos.0 >= height - 1 {
-            newPos.0 = 1
-        }
-        if newPos.1 >= width - 1 {
-            newPos.1 = 1
-        }
-
-        positions.append(newPos)
-        positions.removeFirst()
+    if newPos.0 < 1 {
+      newPos.0 = height - 2
+    }
+    if newPos.1 < 1 {
+      newPos.1 = width - 2
+    }
+    if newPos.0 >= height - 1 {
+      newPos.0 = 1
+    }
+    if newPos.1 >= width - 1 {
+      newPos.1 = 1
     }
 
-    func isDead() -> Bool {
-        if positions[0...positions.count-2].contains(where: { $0 == positions[positions.count-1] }) {
-            return true
-        }
-        return false
+    return newPos
+  }
+
+  func move(_ direction: Direction?) {
+    if !isAI {
+      if (self.direction == .left && direction != .right)
+        || (self.direction == .right && direction != .left)
+        || (self.direction == .up && direction != .down)
+        || (self.direction == .down && direction != .up)
+      {
+        self.direction = direction ?? self.direction
+      }
+    } else if Int.random(in: 0..<10) < difficulty {
+      self.direction = direction ?? self.direction
     }
+
+    positions.append(newPosition(self.direction))
+    positions.removeFirst()
+  }
 }
 
 struct Food {
-    var position: (Int, Int) = (1, 1)
+  var position: (Int, Int) = (1, 1)
+  var score = 40
+
+  init() {
+    position = (Int.random(in: 1..<height - 1), Int.random(in: 1..<width - 1))
+  }
 }
 
-func loop(game: inout Game) {
-    var tic: Int = 0
-    while true {
-        storeCursorPosition()
-        
-        game.update()
-        game.render()
+func loop(_ game: inout Game) {
+  var tic: Int = 0
+  while true {
+    storeCursorPosition()
 
-        game.checkLose()
+    game.update()
+    game.render()
 
-        tic += 1
-
-        delay(100)
+    if game.checkLose() {
+      break
     }
+
+    tic += 1
+
+    delay(1000 / speed)
+
+    restoreCursorPosition()
+  }
 }
 
-var snake: Snake = Snake()
-var game = Game(snakes: [snake])
+var difficulty = 8
+var width = 50
+var height = 25
+var speed = 10
 
-// cursorOff()
+if CommandLine.arguments.contains("--help") {
+  print("Usage: \(CommandLine.arguments[0]) [options]")
 
-loop(game: &game)
+  print("Options:")
+  print("  --difficulty [0-10]  Set the difficulty of the game (default: \(difficulty))")
+  print("  --width [width]      Set the width of the game (default: \(width))")
+  print("  --height [height]    Set the height of the game (default: \(height))")
+  print("  --speed [1-100]     Set the speed of the game (default: \(speed))")
+  print("  --help               Show this help message")
+  exit(0)
+}
 
-// cursorOn()
+for (i, arg) in CommandLine.arguments.enumerated() {
+  if arg == "--difficulty" {
+    difficulty = Int(CommandLine.arguments[i + 1]) ?? difficulty
+  } else if arg == "--width" {
+    width = Int(CommandLine.arguments[i + 1]) ?? width
+  } else if arg == "--height" {
+    height = Int(CommandLine.arguments[i + 1]) ?? height
+  } else if arg == "--speed" {
+    speed = max(min(Int(CommandLine.arguments[i + 1]) ?? speed, 100), 1)
+  }
+}
+
+clearLine()
+
+print("Swift Snake by Yuliy and Guruprasad".green.bold)
+
+var snake = Snake((height / 2, width / 4))
+var otherSnake = Snake(
+  (height / 2, 3 * width / 4), direction: .left, isAI: true, color: 11, difficulty: difficulty)
+var game = Game(snakes: [snake, otherSnake])
+
+cursorOff()
+
+loop(&game)
+
+cursorOn()

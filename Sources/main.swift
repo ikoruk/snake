@@ -56,7 +56,7 @@ struct Game {
     for (i, snake) in snakes.enumerated() {
       if snake.isAI {
         var bestDirection: Direction = .right
-        var bestDist: Double = Double.infinity
+        var bestDist: Int = Int.max
 
         // choose direction to move to food fastest, try to avoid other snakes
         for direction in Direction.allCases {
@@ -78,9 +78,8 @@ struct Game {
 
           if occupied { continue }
 
-          let dist = sqrt(
-            Double(food.position.0 - newPos.0) * Double(food.position.0 - newPos.0)
-              + Double(food.position.1 - newPos.1) * Double(food.position.1 - newPos.1))
+          let dist =
+            abs(food.position.0 - newPos.0) + abs(food.position.1 - newPos.1)
 
           if dist < bestDist {
             bestDist = dist
@@ -225,7 +224,7 @@ class Snake {
     }
   }
 
-  func increaseLength(_ increase: Int = 4) {
+  func increaseLength(_ increase: Int = 3) {
     for _ in 0..<increase {
       positions.insert(positions.first!, at: 0)
     }

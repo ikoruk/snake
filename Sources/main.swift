@@ -353,9 +353,9 @@ for (i, arg) in CommandLine.arguments.enumerated() {
   }
 }
 
-clearLine()
+clearScreen()
 
-print("Swift Snake by Yuliy and Guruprasad".green.bold)
+print("\n\n\nSwift Snake by Yuliy and Guruprasad".green.bold)
 
 var snake = Snake((height / 2, width / 4))
 var otherSnake = Snake(
